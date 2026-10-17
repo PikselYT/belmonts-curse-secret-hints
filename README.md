@@ -58,6 +58,15 @@ The game install and the save folder are auto-detected (Steam registry + `librar
 Linux/Proton). To override, pass `--game` / `--save`, set `BC_GAME_DIR` / `BC_SAVE_DIR`, or copy
 `config.example.json` to `config.json`.
 
+If you also use the [Map Hints](https://github.com/PikselYT/belmonts-curse-maphints) mod, `run_extract.bat` copies the
+data into its plugin folder automatically.
+
+## Compatibility
+| This tool | data format | Map Hints mod |
+|---|---|---|
+| 1.2.x | 3 | 0.2.x |
+| 1.0.x - 1.1.x | 3 | 0.1.x (manual copy of `data/*.json`) |
+
 ## Options (`hints.py`, also via `run_hints.bat`)
 | option | meaning |
 |---|---|
@@ -94,6 +103,7 @@ Linux/Proton). To override, pass `--game` / `--save`, set `BC_GAME_DIR` / `BC_SA
 
 ## Layout
 ```
+CHANGELOG.md      release notes
 extract_data.py   extracts rooms, collisions, zones, collectibles, district names and completion totals (UnityPy)
 hints.py          reads the save, finds what is missing, draws maps and the HTML report
 paths.py          finds the game install and save folder

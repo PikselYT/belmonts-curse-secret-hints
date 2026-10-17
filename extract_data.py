@@ -4,11 +4,15 @@ Output goes to data/<World>.json. Re-run after a game update (the tool detects a
 GameAssembly.dll and rebuilds the asset index).
 
     python extract_data.py [--game "<game folder>"] [--biomes 06_MainHall,01_Streets_Poor] [--jobs 8]
+
+If the Map Hints mod is installed (<game>/BepInEx/plugins/MapHints), the data is also copied there
+(skip with --no-plugin-export).
 """
 import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import time
 from multiprocessing import Pool
@@ -156,12 +160,29 @@ def scene_zones(args):
     return path, {"zones": out, "items": items}, None
 
 
+def export_to_plugin(game):
+    """Copy the data the Map Hints mod reads into its plugin folder (only when the mod is installed)."""
+    dest = os.path.join(game, "BepInEx", "plugins", "MapHints")
+    if not os.path.isdir(dest):
+        return
+    dest = os.path.join(dest, "data")
+    os.makedirs(dest, exist_ok=True)
+    n = 0
+    for name in os.listdir(DATA):
+        if name.endswith(".json"):
+            shutil.copy2(os.path.join(DATA, name), os.path.join(dest, name))
+            n += 1
+    print(f"Map Hints mod: copied {n} data files to {dest}", flush=True)
+
+
 def main():
     global BUNDLES
     ap = argparse.ArgumentParser()
     ap.add_argument("--game", help="game install folder (default: auto-detected via Steam)")
     ap.add_argument("--biomes", default="", help="e.g. 06_MainHall,01_Streets_Poor (default: all)")
     ap.add_argument("--jobs", type=int, default=max(2, (os.cpu_count() or 4) - 2))
+    ap.add_argument("--no-plugin-export", action="store_true",
+                    help="do not copy the data into the Map Hints mod folder")
     a = ap.parse_args()
     game = paths.find_game_dir(a.game)
     if not game:
@@ -289,6 +310,8 @@ def main():
     with open(os.path.join(DATA, "meta.json"), "w", encoding="utf-8") as f:
         json.dump({"data_version": DATA_VERSION, "game": paths.game_stamp(a.game),
                    "extracted_at": int(time.time())}, f)
+    if not a.no_plugin_export:
+        export_to_plugin(a.game)
     print(f"Done in {time.time() - t0:.0f}s", flush=True)
     sys.stdout.flush()
     os._exit(0)  # UnityPy can crash during interpreter shutdown - the data is already written
