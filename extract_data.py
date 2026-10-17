@@ -17,7 +17,7 @@ import UnityPy
 
 import paths
 
-DATA_VERSION = 2  # bump when the data/*.json format changes
+DATA_VERSION = 3  # bump when the data/*.json format changes
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data")
 BUNDLES = None  # ustawiane w main()
@@ -86,14 +86,33 @@ def camel_split(s):
     return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", s.replace("_", " ")).strip()
 
 
-# ---------- scenes: secret zones ----------
+# ---------- scenes: secret zones and collectibles ----------
+# Savable entities worth pointing out (normalized GameObject name -> kind). The game stores
+# {"activated": true} for the ones already collected / opened / destroyed.
+ITEM_KINDS = {
+    "GPE_Chest": "chest",
+    "GPE_ChestUniqueLooter": "chest",
+    "GPE_UpgradeCollectibleHealth": "health",
+    "GPE_UpgradeCollectibleMana": "mana",
+    "GPE_ConsumableAtkUpBook": "atk_book",
+    "GPE_ConsumableDefUpBook": "def_book",
+    "GPE_DestructibleSourceExperience": "xp",
+}
+
+
+def norm_name(n):
+    return re.sub(r"[\s_]*\(?\d+\)?$", "", n.replace("(Clone)", "")).strip()
+
+
 def scene_zones(args):
     path, bundle = args
     out = []
+    items = []
     try:
         env = UnityPy.load(bundle)
         objs = {o.path_id: o for o in env.objects}
         tr = {o.path_id: o.read_typetree() for o in env.objects if o.type.name == "Transform"}
+        gotr = {t["m_GameObject"]["m_PathID"]: pid for pid, t in tr.items()}
 
         def wpos(pid):
             x = y = 0.0
@@ -108,6 +127,17 @@ def scene_zones(args):
             if o.type.name != "MonoBehaviour":
                 continue
             t = o.read_typetree()
+            if "_savableIDs" in t:  # layer component listing the savable entities of the scene
+                for e in t["_savableIDs"]:
+                    so = objs.get(e["SavableEntity"]["m_PathID"])
+                    if so is None:
+                        continue
+                    gid = so.read_typetree()["m_GameObject"]["m_PathID"]
+                    kind = ITEM_KINDS.get(norm_name(objs[gid].read_typetree()["m_Name"]))
+                    if kind and gid in gotr:
+                        wx, wy = wpos(gotr[gid])
+                        items.append({"guid": e["Id"], "kind": kind, "wx": wx, "wy": wy})
+                continue
             if "secretZoneIndex" not in t or "selfEntity" not in t:
                 continue
             go = objs[t["m_GameObject"]["m_PathID"]].read_typetree()
@@ -122,8 +152,8 @@ def scene_zones(args):
                 "active": bool(go.get("m_IsActive", 1)),
             })
     except Exception as e:  # a single scene must not abort the whole run
-        return path, out, repr(e)
-    return path, out, None
+        return path, {"zones": out, "items": items}, repr(e)
+    return path, {"zones": out, "items": items}, None
 
 
 def main():
@@ -218,15 +248,15 @@ def main():
             }
             if scene_path in idx:
                 tasks.append((scene_path, os.path.join(BUNDLES, idx[scene_path])))
-        biomes[wname] = {"world": wname, "title": camel_split(wname.split("_", 3)[-1]), "rooms": rooms, "zones": []}
+        biomes[wname] = {"world": wname, "title": camel_split(wname.split("_", 3)[-1]), "rooms": rooms, "zones": [], "items": []}
         print(f"{wname}: {len(rooms)} rooms", flush=True)
 
     # scenes -> zones (in parallel)
     print(f"Scanning {len(tasks)} scenes...", flush=True)
     res = {}
     with Pool(a.jobs) as pool:
-        for n, (path, zones, err) in enumerate(pool.imap_unordered(scene_zones, tasks, chunksize=2), 1):
-            res[path] = zones
+        for n, (path, found, err) in enumerate(pool.imap_unordered(scene_zones, tasks, chunksize=2), 1):
+            res[path] = found
             if err:
                 print("  warning:", path.split("/")[-1], err, flush=True)
             if n % 50 == 0:
@@ -237,11 +267,17 @@ def main():
             # scene origin = room position + edition offset (in chunks)
             ox = (r["cx"] + r["off"][0]) * r["cs"][0]
             oy = (r["cy"] + r["off"][1]) * r["cs"][1]
-            for z in res.get(r["path"], []):
+            found = res.get(r["path"], {"zones": [], "items": []})
+            for z in found["zones"]:
                 b["zones"].append({
                     "room": scene, "idx": z["idx"], "resetable": z["resetable"], "nosfx": z["nosfx"],
                     "x": int(round(z["wx"] - 0.5 - ox)), "y": int(round(z["wy"] - 0.5 - oy)),
                     "w": z["w"], "h": z["h"], "active": z["active"],
+                })
+            for it in found["items"]:
+                b["items"].append({
+                    "room": scene, "guid": it["guid"], "kind": it["kind"],
+                    "x": round(it["wx"] - ox, 1), "y": round(it["wy"] - oy, 1),
                 })
         b["room_district"] = {s: room2name.get(f"{wname}_{s}") for s in b["rooms"]}
         for r in b["rooms"].values():
@@ -249,7 +285,7 @@ def main():
         json.dump(b, open(os.path.join(DATA, wname + ".json"), "w"))
         n_all = len(b["zones"])
         n_cnt = sum(1 for z in b["zones"] if not z["resetable"])
-        print(f"  {wname}: zones {n_all} (counted {n_cnt})", flush=True)
+        print(f"  {wname}: zones {n_all} (counted {n_cnt}), collectibles {len(b['items'])}", flush=True)
     with open(os.path.join(DATA, "meta.json"), "w", encoding="utf-8") as f:
         json.dump({"data_version": DATA_VERSION, "game": paths.game_stamp(a.game),
                    "extracted_at": int(time.time())}, f)

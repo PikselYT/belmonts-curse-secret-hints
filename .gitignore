@@ -5,7 +5,7 @@ __pycache__/
 
 # data extracted from the game (belongs to its developers - not committed) and generated output
 data/
-report.html
+report*.html
 missing.json
 
 # local configuration
