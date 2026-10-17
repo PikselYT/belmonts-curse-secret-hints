@@ -1,0 +1,12 @@
+# environment and caches
+.venv/
+__pycache__/
+*.pyc
+
+# data extracted from the game (belongs to its developers - not committed) and generated output
+data/
+report.html
+missing.json
+
+# local configuration
+config.json
